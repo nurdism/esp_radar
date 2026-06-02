@@ -5,6 +5,8 @@ A tiny flight radar for the **Waveshare ESP32-S3-Touch-LCD-1.46** (1.46" round
 location from [adsb.lol](https://api.adsb.lol) and plots them on a classic
 amber-on-black ATC radar scope.
 
+![ESP Radar running on the Waveshare ESP32-S3 round display](preview.jpg)
+
 Each aircraft is drawn as a dot with a velocity leader line and a four-line data
 block: **callsign / type / flight level / ground speed**.
 
