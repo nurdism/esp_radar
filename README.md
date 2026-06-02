@@ -102,3 +102,7 @@ Set your zone with the POSIX **`ESP_RADAR_TZ`** string in menuconfig.
 
 Nautical / aviation: range in NM, altitude as flight level (FLxxx), speed in
 knots.
+
+## License
+
+[MIT](LICENSE)
