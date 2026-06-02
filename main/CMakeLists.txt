@@ -11,4 +11,6 @@ idf_component_register(
         beeper
         timesync
         rtc
+        battery
+        power
 )

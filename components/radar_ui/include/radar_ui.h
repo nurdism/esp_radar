@@ -35,6 +35,14 @@ void radar_ui_update(const aircraft_t *list, size_t count);
  */
 void radar_ui_set_status(const char *status);
 
+/**
+ * @brief Update the battery indicator.
+ *
+ * @param percent  Charge estimate 0..100.
+ * @param present  If false, the indicator is hidden (no battery connected).
+ */
+void radar_ui_set_battery(int percent, bool present);
+
 #ifdef __cplusplus
 }
 #endif

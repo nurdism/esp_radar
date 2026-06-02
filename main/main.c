@@ -23,6 +23,8 @@
 #include "beeper.h"
 #include "timesync.h"
 #include "rtc_pcf85063.h"
+#include "battery.h"
+#include "power.h"
 
 static const char *TAG = "esp_radar";
 
@@ -50,6 +52,13 @@ static void seed_time_from_rtc(void)
     settimeofday(&tv, NULL);
     ESP_LOGI(TAG, "seeded clock from RTC: %04d-%02d-%02d %02d:%02d:%02d",
              t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+}
+
+/* Called when the power button is long-pressed, just before the latch drops. */
+static void on_shutdown(void)
+{
+    radar_ui_set_status("OFF");
+    board_set_backlight(0);
 }
 
 static void on_wifi_state(wifi_sta_state_t state, void *ctx)
@@ -84,7 +93,16 @@ static void radar_task(void *arg)
         return;
     }
 
+    int fails = 0;
+
     while (1) {
+        /* Battery indicator (updates regardless of network state). */
+        float volts = 0;
+        int pct = 0;
+        bool present = battery_read(&volts, &pct);
+        ESP_LOGI(TAG, "battery %.2fV %d%% present=%d", volts, pct, present);
+        radar_ui_set_battery(pct, present);
+
         if (wifi_sta_is_connected()) {
             size_t count = 0;
             esp_err_t err = flight_data_fetch(HOME_LAT, HOME_LON, RANGE_NM,
@@ -92,12 +110,17 @@ static void radar_task(void *arg)
             if (err == ESP_OK) {
                 ESP_LOGI(TAG, "%u aircraft within %d NM", (unsigned)count, RANGE_NM);
                 radar_ui_update(aircraft, count);
+                radar_ui_set_status("LINK UP");
+                fails = 0;
 #if CONFIG_ESP_RADAR_BEEP
                 beeper_beep();
 #endif
             } else {
                 ESP_LOGW(TAG, "fetch failed: %s", esp_err_to_name(err));
-                radar_ui_set_status("API ERR");
+                /* Tolerate the odd transient miss before alarming. */
+                if (++fails >= 2) {
+                    radar_ui_set_status("API ERR");
+                }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(REFRESH_SEC * 1000));
@@ -106,6 +129,10 @@ static void radar_task(void *arg)
 
 void app_main(void)
 {
+    /* Latch power on first so the board stays up on battery once the button is
+     * released (also enables long-press shutdown). */
+    ESP_ERROR_CHECK(power_init(on_shutdown));
+
     ESP_LOGI(TAG, "ESP Radar starting (home %s, %s  range %d NM)",
              CONFIG_ESP_RADAR_HOME_LAT, CONFIG_ESP_RADAR_HOME_LON, RANGE_NM);
 
@@ -121,6 +148,8 @@ void app_main(void)
     /* RTC fallback: seed the clock now; SNTP will refine it once online. */
     ESP_ERROR_CHECK(pcf85063_init(board_i2c_bus()));
     seed_time_from_rtc();
+
+    ESP_ERROR_CHECK(battery_init());
 
     radar_ui_create(CONFIG_ESP_RADAR_ZIP_CODE, HOME_LAT, HOME_LON, RANGE_NM);
     radar_ui_set_status("WIFI...");

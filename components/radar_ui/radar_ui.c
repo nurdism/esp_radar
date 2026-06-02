@@ -32,6 +32,7 @@ static lv_obj_t *s_screen;
 static lv_obj_t *s_layer;          /* parent of all per-aircraft objects */
 static lv_obj_t *s_header;
 static lv_obj_t *s_status;
+static lv_obj_t *s_battery;
 /* Analog clock drawn behind the scope: three hands pivoting at centre. */
 static lv_obj_t *s_hand_hour;
 static lv_obj_t *s_hand_min;
@@ -184,6 +185,13 @@ void radar_ui_create(const char *zip, double home_lat, double home_lon, int rang
     lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -26);
     lv_label_set_text(s_status, "");
 
+    /* Battery indicator (below the header); hidden until a battery is seen. */
+    s_battery = lv_label_create(s_screen);
+    lv_obj_set_style_text_font(s_battery, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_battery, COLOR_SCOPE, 0);
+    lv_obj_align(s_battery, LV_ALIGN_TOP_MID, 0, 42);
+    lv_obj_add_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+
     /* Layer that holds the dynamic aircraft objects. */
     s_layer = lv_obj_create(s_screen);
     lv_obj_remove_style_all(s_layer);
@@ -294,5 +302,25 @@ void radar_ui_set_status(const char *status)
     }
     lvgl_port_lock(0);
     lv_label_set_text(s_status, status ? status : "");
+    lvgl_port_unlock();
+}
+
+void radar_ui_set_battery(int percent, bool present)
+{
+    if (!s_battery) {
+        return;
+    }
+    lvgl_port_lock(0);
+    if (!present) {
+        lv_obj_add_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        const char *sym = LV_SYMBOL_BATTERY_FULL;
+        if (percent < 20)      sym = LV_SYMBOL_BATTERY_EMPTY;
+        else if (percent < 45) sym = LV_SYMBOL_BATTERY_1;
+        else if (percent < 70) sym = LV_SYMBOL_BATTERY_2;
+        else if (percent < 95) sym = LV_SYMBOL_BATTERY_3;
+        lv_label_set_text_fmt(s_battery, "%s %d%%", sym, percent);
+        lv_obj_clear_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+    }
     lvgl_port_unlock();
 }

@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
@@ -13,7 +15,8 @@ static const char *TAG = "flight_data";
 
 /* adsb.lol responses for a busy area are tens of KB; cap to keep memory bounded. */
 #define RESPONSE_MAX_BYTES   (128 * 1024)
-#define HTTP_TIMEOUT_MS      10000
+#define HTTP_TIMEOUT_MS      15000
+#define HTTP_ATTEMPTS        2       /* retry once on a transient failure */
 
 /* Response accumulator passed to the HTTP event handler. */
 typedef struct {
@@ -118,26 +121,35 @@ esp_err_t flight_data_fetch(double lat, double lon, int radius_nm,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = 2048,
     };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) {
-        heap_caps_free(resp.buf);
-        return ESP_FAIL;
-    }
-    esp_http_client_set_header(client, "Accept", "application/json");
+    esp_err_t err = ESP_FAIL;
+    int status = 0;
+    for (int attempt = 1; attempt <= HTTP_ATTEMPTS; attempt++) {
+        resp.len = 0;
+        resp.buf[0] = '\0';
 
-    esp_err_t err = esp_http_client_perform(client);
-    int status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (!client) {
+            heap_caps_free(resp.buf);
+            return ESP_FAIL;
+        }
+        esp_http_client_set_header(client, "Accept", "application/json");
+        err = esp_http_client_perform(client);
+        status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
 
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "request failed: %s", esp_err_to_name(err));
-        heap_caps_free(resp.buf);
-        return err;
+        if (err == ESP_OK && status == 200) {
+            break;
+        }
+        ESP_LOGW(TAG, "attempt %d/%d failed (%s, HTTP %d)",
+                 attempt, HTTP_ATTEMPTS, esp_err_to_name(err), status);
+        if (attempt < HTTP_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
     }
-    if (status != 200) {
-        ESP_LOGW(TAG, "HTTP %d", status);
+
+    if (err != ESP_OK || status != 200) {
         heap_caps_free(resp.buf);
-        return ESP_FAIL;
+        return (err != ESP_OK) ? err : ESP_FAIL;
     }
 
     cJSON *root = cJSON_Parse(resp.buf);

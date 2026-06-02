@@ -3,7 +3,8 @@
 A tiny flight radar for the **Waveshare ESP32-S3-Touch-LCD-1.46** (1.46" round
 412×412 touch display). It pulls live ADS-B aircraft positions near your
 location from [adsb.lol](https://api.adsb.lol) and plots them on a classic
-amber-on-black ATC radar scope.
+amber-on-black ATC radar scope. It doubles as a desk clock — a dim amber analog
+clock is drawn behind the scope (see [Clock](#clock)).
 
 ![ESP Radar running on the Waveshare ESP32-S3 round display](preview.jpg)
 
@@ -11,6 +12,8 @@ Each aircraft is drawn as a dot with a velocity leader line and a four-line data
 block: **callsign / type / flight level / ground speed**.
 
 ## Hardware
+
+Buy the board: [Amazon](https://www.amazon.com/dp/B0DRJHQYKJ) · [Waveshare](https://www.waveshare.com/esp32-s3-touch-lcd-1.46b.htm)
 
 | Function        | Detail                                                |
 |-----------------|-------------------------------------------------------|
@@ -39,11 +42,10 @@ esp_radar/
     ├── radar_ui/              # the LVGL radar scope + background analog clock
     ├── timesync/              # SNTP time, persisted to the RTC
     ├── rtc/                   # PCF85063 RTC (time fallback / persistence)
-    └── beeper/                # short tone on each update (PCM5101 I²S DAC)
+    ├── beeper/                # short tone on each update (PCM5101 I²S DAC)
+    ├── battery/               # battery voltage via ADC1/GPIO8 (indicator)
+    └── power/                 # power-hold latch (GPIO7) + long-press shutdown
 ```
-
-> The original vendor demo lives in `.demo/` for reference only. It is **not**
-> part of the build (ESP-IDF only scans `main/` and `components/`).
 
 ## Configure
 
