@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "flight_data.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        esp_http_client
+        esp-tls
+        mbedtls
+        json
+)

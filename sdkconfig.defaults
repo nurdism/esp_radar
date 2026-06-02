@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# ESP Radar - project defaults
+# Target: ESP32-S3-Touch-LCD-1.46 (ESP32-S3, 16 MB flash, 8 MB octal PSRAM)
+# ---------------------------------------------------------------------------
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash ---
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+
+# --- Octal PSRAM (LVGL frame buffers live here) ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+
+# --- CPU / cache ---
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# --- Custom partition table ---
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- Console over the built-in USB-Serial-JTAG ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# --- Larger main task stack (UI + networking bring-up) ---
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+# --- TLS root certificate bundle (HTTPS to adsb.lol) ---
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# --- LVGL ---
+CONFIG_LV_COLOR_DEPTH_16=y
+# Monospace bitmap fonts for the ATC radar-scope look
+CONFIG_LV_FONT_UNSCII_8=y
+CONFIG_LV_FONT_UNSCII_16=y
+CONFIG_LV_FONT_MONTSERRAT_14=y

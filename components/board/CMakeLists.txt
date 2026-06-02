@@ -1,0 +1,15 @@
+idf_component_register(
+    SRCS
+        "board.c"
+        "touch_spd2010.c"
+    INCLUDE_DIRS
+        "include"
+    PRIV_INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        esp_lcd
+        lvgl
+        esp_lvgl_port
+        esp_lcd_spd2010
+)

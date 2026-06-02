@@ -1,0 +1,40 @@
+/*
+ * LVGL radar scope rendered in the classic amber-on-black ATC style:
+ * concentric range rings, and each aircraft drawn as a dot with a velocity
+ * leader line and a 4-line data block (callsign / type / flight level / speed).
+ *
+ * All functions take the LVGL port lock internally, so they are safe to call
+ * from any task.
+ */
+#pragma once
+
+#include <stddef.h>
+#include "flight_data.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Build the radar scope on the active LVGL screen.
+ *
+ * @param zip       Postal-code label shown in the header.
+ * @param home_lat  Latitude of the radar centre.
+ * @param home_lon  Longitude of the radar centre.
+ * @param range_nm  Range of the outer ring, in nautical miles.
+ */
+void radar_ui_create(const char *zip, double home_lat, double home_lon, int range_nm);
+
+/**
+ * @brief Replace the plotted aircraft with @p list.
+ */
+void radar_ui_update(const aircraft_t *list, size_t count);
+
+/**
+ * @brief Update the short status string in the header (e.g. "LINK UP").
+ */
+void radar_ui_set_status(const char *status);
+
+#ifdef __cplusplus
+}
+#endif

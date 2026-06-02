@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "radar_ui.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        lvgl
+        esp_lvgl_port
+        flight_data
+)

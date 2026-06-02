@@ -1,0 +1,14 @@
+idf_component_register(
+    SRCS
+        "main.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        board
+        wifi_sta
+        flight_data
+        radar_ui
+        beeper
+        timesync
+        rtc
+)

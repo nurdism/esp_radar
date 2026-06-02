@@ -1,0 +1,11 @@
+# Managed component dependencies (downloaded by the IDF component manager).
+# Declared here in the project's main component; they become available to
+# every component in the build.
+dependencies:
+  idf: ">=5.3"
+  lvgl/lvgl: "~9.3.0"           # esp_lvgl_port 2.8 needs LV_COLOR_FORMAT_RGB565_SWAPPED (9.3+)
+  espressif/esp_lvgl_port: "^2.4"
+  espressif/esp_lcd_spd2010: "^1.0"
+  # Touch is handled by the local touch_spd2010 driver in components/board/
+  # (the managed esp_lcd_touch_spd2010 issues zero-length I2C reads that the
+  # new i2c_master driver rejects).
