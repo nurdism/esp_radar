@@ -57,6 +57,65 @@ const terminal = {
   write(data) { logEl.textContent += data; logEl.scrollTop = logEl.scrollHeight; },
 };
 
+// --- Form defaults & persistence --------------------------------------------
+// Keyed by element id. Mirrors the firmware's menuconfig defaults; checkbox
+// fields use booleans, everything else strings. `addr`/`raw-toggle` are UX-only
+// (not part of the config blob).
+const DEFAULTS = {
+  ssid: "myssid",
+  pass: "mypassword",
+  addr: "",
+  zip: "10001",
+  lat: "40.7128",
+  lon: "-74.0060",
+  range: "50",
+  refresh: "15",
+  tz: "EST5EDT,M3.2.0,M11.1.0",
+  ntp: "pool.ntp.org",
+  beep: true,
+  ui_clock: true,
+  ui_rings: true,
+  ui_battery: true,
+  ui_header: true,
+  ui_status: true,
+  ui_labels: true,
+  ui_leaders: true,
+  "raw-toggle": false,
+};
+
+const STORE_KEY = "esp_radar_flasher";
+
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveForm() {
+  const data = {};
+  for (const id of Object.keys(DEFAULTS)) {
+    const el = $(id);
+    if (!el) continue;
+    data[id] = el.type === "checkbox" ? el.checked : el.value;
+  }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {}
+}
+
+// Populate the form from saved values, falling back to DEFAULTS per field.
+function applyForm(values) {
+  for (const id of Object.keys(DEFAULTS)) {
+    const el = $(id);
+    if (!el) continue;
+    const val = id in values ? values[id] : DEFAULTS[id];
+    if (el.type === "checkbox") el.checked = !!val;
+    else el.value = val;
+  }
+  // Reflect the raw-lat/lon toggle and coordinate readout.
+  const raw = $("raw-toggle").checked;
+  $("raw-mode").hidden = !raw;
+  $("addr-mode").hidden = raw;
+  syncCoordsFromInputs();
+}
+
 // --- Build the config image -------------------------------------------------
 function buildConfigBlob() {
   const buf = new Uint8Array(BLOB_SIZE);
@@ -117,6 +176,7 @@ function applyCoords(lat, lon) {
   $("lat").value = lat.toFixed(5);
   $("lon").value = lon.toFixed(5);
   setCoordsText(`Coordinates: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+  saveForm();
 }
 
 function syncCoordsFromInputs() {
@@ -184,8 +244,13 @@ async function flash() {
     parts.push({ address: CONFIG_ADDR, data: toBinaryString(blob) });
     log(`  config (${blob.length} bytes) -> 0x${CONFIG_ADDR.toString(16)}`);
 
-    log("Select the board's serial port...");
-    const port = await navigator.serial.requestPort();
+    // Use the port chosen in the dropdown; if none, prompt for one now.
+    let port = selectedPort();
+    if (!port) {
+      log("Select the board's serial port...");
+      port = await navigator.serial.requestPort();
+      await refreshPorts(port);
+    }
     transport = new Transport(port, true);
 
     const esploader = new ESPLoader({ transport, baudrate: 921600, terminal });
@@ -217,6 +282,59 @@ async function flash() {
   }
 }
 
+// --- Serial port selection --------------------------------------------------
+// Web Serial can only enumerate ports the user has already granted, and exposes
+// just USB VID/PID (no friendly name), so labels are best-effort.
+let knownPorts = [];
+
+function portLabel(p, i) {
+  const info = p.getInfo ? p.getInfo() : {};
+  if (info.usbVendorId != null) {
+    const vid = info.usbVendorId.toString(16).padStart(4, "0");
+    const pid = (info.usbProductId ?? 0).toString(16).padStart(4, "0");
+    return `Port ${i + 1} — USB ${vid}:${pid}`;
+  }
+  return `Port ${i + 1}`;
+}
+
+function selectedPort() {
+  const sel = $("port");
+  const i = sel ? parseInt(sel.value, 10) : NaN;
+  return Number.isInteger(i) ? knownPorts[i] : null;
+}
+
+async function refreshPorts(preferred) {
+  if (!("serial" in navigator)) return;
+  knownPorts = await navigator.serial.getPorts();
+  const sel = $("port");
+  sel.innerHTML = "";
+  if (!knownPorts.length) {
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = "No ports authorized — click “Choose port…”";
+    sel.appendChild(o);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  knownPorts.forEach((p, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = portLabel(p, i);
+    sel.appendChild(o);
+  });
+  const idx = preferred ? knownPorts.indexOf(preferred) : -1;
+  sel.value = String(idx >= 0 ? idx : knownPorts.length - 1);
+}
+
+async function choosePort() {
+  try {
+    const p = await navigator.serial.requestPort();
+    await refreshPorts(p);
+  } catch {
+    /* user dismissed the picker */
+  }
+}
+
 // --- Init -------------------------------------------------------------------
 // Location controls work regardless of Web Serial support.
 $("geocode").addEventListener("click", geocode);
@@ -232,9 +350,27 @@ $("raw-toggle").addEventListener("change", (e) => {
   $("addr-mode").hidden = raw;
 });
 
+// Persist every form field; restore saved values (or defaults) on load.
+applyForm(loadSaved());
+for (const id of Object.keys(DEFAULTS)) {
+  const el = $(id);
+  if (!el) continue;
+  el.addEventListener(el.type === "checkbox" ? "change" : "input", saveForm);
+}
+$("reset").addEventListener("click", () => {
+  try { localStorage.removeItem(STORE_KEY); } catch {}
+  applyForm({});
+});
+
 if (!("serial" in navigator)) {
   $("nosupport").hidden = false;
   $("flash").disabled = true;
+  $("addport").disabled = true;
+  $("port").disabled = true;
 } else {
   $("flash").addEventListener("click", flash);
+  $("addport").addEventListener("click", choosePort);
+  refreshPorts();
+  navigator.serial.addEventListener("connect", () => refreshPorts(selectedPort()));
+  navigator.serial.addEventListener("disconnect", () => refreshPorts(selectedPort()));
 }

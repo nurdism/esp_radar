@@ -21,14 +21,14 @@
     }
     legend { padding: 0 .5rem; color: var(--amber); font-size: .85rem; text-transform: uppercase; letter-spacing: .1em; }
     label { display: block; margin: .6rem 0 .15rem; font-size: .8rem; color: #cfa64a; }
-    input[type=text], input[type=password], input[type=number] {
+    input[type=text], input[type=password], input[type=number], select {
       width: 100%; padding: .5rem .6rem; background: #000; color: var(--amber);
       border: 1px solid #3a3a3a; border-radius: 4px; font-family: inherit; font-size: .95rem;
     }
-    input:focus { outline: none; border-color: var(--amber); }
+    input:focus, select:focus { outline: none; border-color: var(--amber); }
     .row { display: flex; gap: .75rem; align-items: stretch; }
     .row > div { flex: 1; }
-    .row > input { flex: 1; }
+    .row > input, .row > select { flex: 1; min-width: 0; }
     button.aux {
       width: auto; flex: 0 0 auto; margin-top: 0; padding: .5rem .9rem; font-size: .85rem;
       font-weight: 500; background: transparent; color: var(--amber); border: 1px solid var(--amber);
@@ -121,13 +121,35 @@
         <label for="ntp">NTP server</label>
         <input id="ntp" type="text" maxlength="47" placeholder="pool.ntp.org" />
         <div class="check">
-          <input id="beep" type="checkbox" checked />
+          <input id="beep" type="checkbox" />
           <label for="beep">Beep on each successful update</label>
         </div>
       </fieldset>
 
+      <fieldset>
+        <legend>Display elements</legend>
+        <div class="check"><input id="ui_clock" type="checkbox" /><label for="ui_clock">Background analog clock</label></div>
+        <div class="check"><input id="ui_rings" type="checkbox" /><label for="ui_rings">Range rings</label></div>
+        <div class="check"><input id="ui_battery" type="checkbox" /><label for="ui_battery">Battery indicator</label></div>
+        <div class="check"><input id="ui_header" type="checkbox" /><label for="ui_header">Header (location / range / count)</label></div>
+        <div class="check"><input id="ui_status" type="checkbox" /><label for="ui_status">Status line</label></div>
+        <div class="check"><input id="ui_labels" type="checkbox" /><label for="ui_labels">Aircraft data blocks</label></div>
+        <div class="check"><input id="ui_leaders" type="checkbox" /><label for="ui_leaders">Aircraft leader lines</label></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Serial port</legend>
+        <div class="row">
+          <select id="port"></select>
+          <button id="addport" type="button" class="aux">Choose port&hellip;</button>
+        </div>
+        <p class="hint">Plug the board in via USB, then pick its port (or use
+          &ldquo;Choose port&hellip;&rdquo; to authorize a new one).</p>
+      </fieldset>
+
       <button id="flash" type="button">Connect &amp; Flash</button>
       <div class="bar"><div id="prog"></div></div>
+      <button id="reset" type="button" class="aux" style="margin-top:.75rem">Reset all to defaults</button>
     </form>
 
     <pre id="log">Ready. Plug the board in via USB, then press &ldquo;Connect &amp; Flash&rdquo;.</pre>
