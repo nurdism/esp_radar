@@ -60,8 +60,43 @@ idf.py menuconfig
   shown in the header. The query uses the lat/lon directly.
 - **Radar** — range / query radius in nautical miles (5–250) and the refresh
   interval in seconds.
+- **Display** — toggle individual scope elements: background clock, range
+  rings, battery indicator, header, status line, aircraft data blocks, and
+  velocity leader lines.
+- **Clock** — POSIX timezone and NTP server.
 
-Defaults point at New York City (40.7128, -74.0060), 50 NM, 15 s.
+Defaults point at New York City (40.7128, -74.0060), 50 NM, 15 s, everything on.
+
+## Flash from your browser (no toolchain)
+
+Every release also publishes a **web flasher** to GitHub Pages:
+
+> **<https://nurdism.github.io/esp_radar/>**
+
+Open it in desktop **Chrome or Edge** (Web Serial), fill in your Wi-Fi,
+location and other settings, plug the board in over USB, and click
+**Connect & Flash**. The page writes the prebuilt firmware plus a tiny
+`config` partition holding your settings — no ESP-IDF install required.
+
+The location field accepts an **address** (geocoded via OpenStreetMap
+Nominatim) or your **current location** (browser geolocation), with a toggle
+to enter raw lat/lon instead. Every Display toggle above is exposed too.
+
+How it works: settings live in a dedicated `config` flash partition (see
+`partitions.csv`). At boot, [`app_config_load()`](components/app_config/app_config.c)
+reads it and falls back to the compiled-in `menuconfig` defaults for any field
+left blank. The browser builds that partition image client-side and flashes it
+alongside the firmware, so values are injected **without recompiling**.
+
+CI ([.github/workflows/release.yml](.github/workflows/release.yml)) builds the
+firmware on every push, attaches the binaries to the GitHub Release on tags
+(`v*`), and deploys the flasher to Pages. To cut a release:
+
+```sh
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+> One-time repo setup: enable **Settings → Pages → Source: GitHub Actions**.
 
 ## Build, flash, monitor
 

@@ -1,0 +1,126 @@
+name: Build, Release & Deploy flasher
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create GitHub Releases
+  pages: write      # deploy GitHub Pages
+  id-token: write   # required by deploy-pages
+
+# Never run two Pages deploys at once.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ESP32-S3 firmware
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build firmware (ESP-IDF v5.5.4)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          command: |
+            idf.py build
+            idf.py merge-bin -o esp_radar-merged.bin
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp build/esp_radar-merged.bin                 artifacts/
+          cp build/esp_radar.bin                        artifacts/
+          cp build/bootloader/bootloader.bin            artifacts/
+          cp build/partition_table/partition-table.bin  artifacts/
+          cp build/flasher_args.json                    artifacts/
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: artifacts/
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: artifacts
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          body: |
+            ## ESP Radar firmware
+
+            **Easiest:** open the [web flasher](https://nurdism.github.io/esp_radar/),
+            fill in your Wi-Fi & location, and click *Connect & Flash* (Chrome/Edge).
+
+            **Manual (CLI):** flash the single-file image at offset `0x0`:
+
+            ```sh
+            esptool.py -p /dev/ttyACM0 write_flash 0x0 esp_radar-merged.bin
+            ```
+
+            Or flash the individual images:
+
+            ```sh
+            esptool.py -p /dev/ttyACM0 write_flash \
+              0x0     bootloader.bin \
+              0x8000  partition-table.bin \
+              0x10000 esp_radar.bin
+            ```
+
+            A CLI flash uses the firmware's built-in defaults (Wi-Fi
+            `myssid`/`mypassword`, NYC). Use the web flasher or `menuconfig`
+            to set your own.
+
+  deploy-pages:
+    name: Deploy web flasher
+    needs: build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: artifacts
+
+      - name: Assemble site
+        run: |
+          mkdir -p site/firmware
+          cp web/index.html web/flasher.js          site/
+          cp artifacts/bootloader.bin               site/firmware/
+          cp artifacts/partition-table.bin          site/firmware/
+          cp artifacts/esp_radar.bin                site/firmware/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

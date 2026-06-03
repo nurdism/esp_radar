@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "app_config.h"
 #include "board.h"
 #include "wifi_sta.h"
 #include "flight_data.h"
@@ -28,11 +29,9 @@
 
 static const char *TAG = "esp_radar";
 
-/* Pulled from menuconfig (see main/Kconfig.projbuild). */
-#define HOME_LAT     (atof(CONFIG_ESP_RADAR_HOME_LAT))
-#define HOME_LON     (atof(CONFIG_ESP_RADAR_HOME_LON))
-#define RANGE_NM     (CONFIG_ESP_RADAR_RANGE_NM)
-#define REFRESH_SEC  (CONFIG_ESP_RADAR_REFRESH_SEC)
+/* Resolved runtime configuration (flash `config` partition, else build
+ * defaults). Loaded once at boot and shared with the polling task. */
+static const app_config_t *s_cfg;
 
 /* Upper bound on aircraft we keep per refresh. */
 #define MAX_AIRCRAFT  64
@@ -75,7 +74,7 @@ static void on_wifi_state(wifi_sta_state_t state, void *ctx)
          * immediately (starting earlier hits a long retry back-off). */
         if (!time_started) {
             time_started = true;
-            timesync_start(CONFIG_ESP_RADAR_TZ, CONFIG_ESP_RADAR_NTP_SERVER);
+            timesync_start(s_cfg->tz, s_cfg->ntp);
         }
         break;
     case WIFI_STA_DISCONNECTED:
@@ -105,16 +104,16 @@ static void radar_task(void *arg)
 
         if (wifi_sta_is_connected()) {
             size_t count = 0;
-            esp_err_t err = flight_data_fetch(HOME_LAT, HOME_LON, RANGE_NM,
+            esp_err_t err = flight_data_fetch(s_cfg->lat, s_cfg->lon, s_cfg->range_nm,
                                               aircraft, MAX_AIRCRAFT, &count);
             if (err == ESP_OK) {
-                ESP_LOGI(TAG, "%u aircraft within %d NM", (unsigned)count, RANGE_NM);
+                ESP_LOGI(TAG, "%u aircraft within %d NM", (unsigned)count, s_cfg->range_nm);
                 radar_ui_update(aircraft, count);
                 radar_ui_set_status("LINK UP");
                 fails = 0;
-#if CONFIG_ESP_RADAR_BEEP
-                beeper_beep();
-#endif
+                if (s_cfg->beep) {
+                    beeper_beep();
+                }
             } else {
                 ESP_LOGW(TAG, "fetch failed: %s", esp_err_to_name(err));
                 /* Tolerate the odd transient miss before alarming. */
@@ -123,7 +122,7 @@ static void radar_task(void *arg)
                 }
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(REFRESH_SEC * 1000));
+        vTaskDelay(pdMS_TO_TICKS(s_cfg->refresh_sec * 1000));
     }
 }
 
@@ -133,17 +132,21 @@ void app_main(void)
      * released (also enables long-press shutdown). */
     ESP_ERROR_CHECK(power_init(on_shutdown));
 
-    ESP_LOGI(TAG, "ESP Radar starting (home %s, %s  range %d NM)",
-             CONFIG_ESP_RADAR_HOME_LAT, CONFIG_ESP_RADAR_HOME_LON, RANGE_NM);
+    /* Resolve configuration before anything reads it (flash partition written by
+     * the web flasher, otherwise compiled-in menuconfig defaults). */
+    s_cfg = app_config_load();
+
+    ESP_LOGI(TAG, "ESP Radar starting (home %.4f, %.4f  range %d NM)",
+             s_cfg->lat, s_cfg->lon, s_cfg->range_nm);
 
     /* Set the timezone up front so RTC<->system-time conversions agree. */
-    setenv("TZ", CONFIG_ESP_RADAR_TZ, 1);
+    setenv("TZ", s_cfg->tz, 1);
     tzset();
 
     ESP_ERROR_CHECK(board_init());
-#if CONFIG_ESP_RADAR_BEEP
-    ESP_ERROR_CHECK(beeper_init());
-#endif
+    if (s_cfg->beep) {
+        ESP_ERROR_CHECK(beeper_init());
+    }
 
     /* RTC fallback: seed the clock now; SNTP will refine it once online. */
     ESP_ERROR_CHECK(pcf85063_init(board_i2c_bus()));
@@ -151,13 +154,22 @@ void app_main(void)
 
     ESP_ERROR_CHECK(battery_init());
 
-    radar_ui_create(CONFIG_ESP_RADAR_ZIP_CODE, HOME_LAT, HOME_LON, RANGE_NM);
+    radar_ui_opts_t ui = {
+        .clock   = s_cfg->ui_clock,
+        .rings   = s_cfg->ui_rings,
+        .battery = s_cfg->ui_battery,
+        .header  = s_cfg->ui_header,
+        .status  = s_cfg->ui_status,
+        .labels  = s_cfg->ui_labels,
+        .leaders = s_cfg->ui_leaders,
+    };
+    radar_ui_create(s_cfg->zip, s_cfg->lat, s_cfg->lon, s_cfg->range_nm, &ui);
     radar_ui_set_status("WIFI...");
 
     /* Wi-Fi connection drives time sync: SNTP is started from on_wifi_state()
      * once the link is up (see above). */
-    ESP_ERROR_CHECK(wifi_sta_start(CONFIG_ESP_RADAR_WIFI_SSID,
-                                   CONFIG_ESP_RADAR_WIFI_PASSWORD,
+    ESP_ERROR_CHECK(wifi_sta_start(s_cfg->wifi_ssid,
+                                   s_cfg->wifi_pass,
                                    on_wifi_state, NULL));
 
     xTaskCreate(radar_task, "radar", 8192, NULL, 4, NULL);

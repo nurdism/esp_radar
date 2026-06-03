@@ -46,6 +46,12 @@ static double s_home_lon;
 static int    s_range_nm = 50;
 static char   s_zip[12];
 
+/* Which scope elements are drawn (see radar_ui_create). */
+static radar_ui_opts_t s_opts = {
+    .clock = true, .rings = true, .battery = true, .header = true,
+    .status = true, .labels = true, .leaders = true,
+};
+
 /* Persistent storage for the leader-line endpoints. lv_line keeps the pointer
  * (it does not copy), and old lines are deleted before we overwrite a slot. */
 static lv_point_precise_t s_line_pts[MAX_AIRCRAFT][2];
@@ -135,12 +141,16 @@ static void make_pip(int hour)
     lv_obj_set_style_bg_opa(pip, LV_OPA_COVER, 0);
 }
 
-void radar_ui_create(const char *zip, double home_lat, double home_lon, int range_nm)
+void radar_ui_create(const char *zip, double home_lat, double home_lon, int range_nm,
+                     const radar_ui_opts_t *opts)
 {
     s_home_lat = home_lat;
     s_home_lon = home_lon;
     s_range_nm = range_nm > 0 ? range_nm : 50;
     strlcpy(s_zip, zip ? zip : "", sizeof(s_zip));
+    if (opts) {
+        s_opts = *opts;
+    }
 
     lvgl_port_lock(0);
 
@@ -150,17 +160,21 @@ void radar_ui_create(const char *zip, double home_lat, double home_lon, int rang
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     /* Analog clock, created first so its hands and pips sit behind the scope. */
-    for (int h = 0; h < 12; h++) {
-        make_pip(h);
+    if (s_opts.clock) {
+        for (int h = 0; h < 12; h++) {
+            make_pip(h);
+        }
+        s_hand_hour = make_hand(5);
+        s_hand_min  = make_hand(3);
+        s_hand_sec  = make_hand(2);
+        lv_timer_create(clock_timer_cb, 1000, NULL);
     }
-    s_hand_hour = make_hand(5);
-    s_hand_min  = make_hand(3);
-    s_hand_sec  = make_hand(2);
-    lv_timer_create(clock_timer_cb, 1000, NULL);
 
     /* Concentric range rings. */
-    for (int i = 1; i <= RING_COUNT; i++) {
-        make_ring(PLOT_RADIUS_PX * i / RING_COUNT);
+    if (s_opts.rings) {
+        for (int i = 1; i <= RING_COUNT; i++) {
+            make_ring(PLOT_RADIUS_PX * i / RING_COUNT);
+        }
     }
 
     /* Centre (home) mark. */
@@ -173,24 +187,30 @@ void radar_ui_create(const char *zip, double home_lat, double home_lon, int rang
     lv_obj_set_style_bg_opa(home, LV_OPA_COVER, 0);
 
     /* Header (top) and status (bottom). */
-    s_header = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_header, &lv_font_unscii_8, 0);
-    lv_obj_set_style_text_color(s_header, COLOR_SCOPE, 0);
-    lv_obj_align(s_header, LV_ALIGN_TOP_MID, 0, 26);
-    lv_label_set_text_fmt(s_header, "%s  %dNM  AC:0", s_zip, s_range_nm);
+    if (s_opts.header) {
+        s_header = lv_label_create(s_screen);
+        lv_obj_set_style_text_font(s_header, &lv_font_unscii_8, 0);
+        lv_obj_set_style_text_color(s_header, COLOR_SCOPE, 0);
+        lv_obj_align(s_header, LV_ALIGN_TOP_MID, 0, 26);
+        lv_label_set_text_fmt(s_header, "%s  %dNM  AC:0", s_zip, s_range_nm);
+    }
 
-    s_status = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_status, &lv_font_unscii_8, 0);
-    lv_obj_set_style_text_color(s_status, COLOR_DIM, 0);
-    lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -26);
-    lv_label_set_text(s_status, "");
+    if (s_opts.status) {
+        s_status = lv_label_create(s_screen);
+        lv_obj_set_style_text_font(s_status, &lv_font_unscii_8, 0);
+        lv_obj_set_style_text_color(s_status, COLOR_DIM, 0);
+        lv_obj_align(s_status, LV_ALIGN_BOTTOM_MID, 0, -26);
+        lv_label_set_text(s_status, "");
+    }
 
     /* Battery indicator (below the header); hidden until a battery is seen. */
-    s_battery = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_battery, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_battery, COLOR_SCOPE, 0);
-    lv_obj_align(s_battery, LV_ALIGN_TOP_MID, 0, 42);
-    lv_obj_add_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+    if (s_opts.battery) {
+        s_battery = lv_label_create(s_screen);
+        lv_obj_set_style_text_font(s_battery, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(s_battery, COLOR_SCOPE, 0);
+        lv_obj_align(s_battery, LV_ALIGN_TOP_MID, 0, 42);
+        lv_obj_add_flag(s_battery, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* Layer that holds the dynamic aircraft objects. */
     s_layer = lv_obj_create(s_screen);
@@ -227,22 +247,24 @@ static bool project(const aircraft_t *ac, int *px, int *py)
 static void plot_aircraft(int slot, const aircraft_t *ac, int px, int py)
 {
     /* Velocity leader line, pointing along the track. */
-    float len = ac->ground_speed * 0.06f;
-    if (len < 10.0f) len = 10.0f;
-    if (len > 30.0f) len = 30.0f;
-    double t = ac->track * M_PI / 180.0;
-    int ex = px + (int)lround(sin(t) * len);
-    int ey = py - (int)lround(cos(t) * len);
+    if (s_opts.leaders) {
+        float len = ac->ground_speed * 0.06f;
+        if (len < 10.0f) len = 10.0f;
+        if (len > 30.0f) len = 30.0f;
+        double t = ac->track * M_PI / 180.0;
+        int ex = px + (int)lround(sin(t) * len);
+        int ey = py - (int)lround(cos(t) * len);
 
-    s_line_pts[slot][0].x = px;
-    s_line_pts[slot][0].y = py;
-    s_line_pts[slot][1].x = ex;
-    s_line_pts[slot][1].y = ey;
+        s_line_pts[slot][0].x = px;
+        s_line_pts[slot][0].y = py;
+        s_line_pts[slot][1].x = ex;
+        s_line_pts[slot][1].y = ey;
 
-    lv_obj_t *line = lv_line_create(s_layer);
-    lv_line_set_points(line, s_line_pts[slot], 2);
-    lv_obj_set_style_line_color(line, COLOR_SCOPE, 0);
-    lv_obj_set_style_line_width(line, 2, 0);
+        lv_obj_t *line = lv_line_create(s_layer);
+        lv_line_set_points(line, s_line_pts[slot], 2);
+        lv_obj_set_style_line_color(line, COLOR_SCOPE, 0);
+        lv_obj_set_style_line_width(line, 2, 0);
+    }
 
     /* Aircraft dot. */
     lv_obj_t *dot = lv_obj_create(s_layer);
@@ -254,25 +276,27 @@ static void plot_aircraft(int slot, const aircraft_t *ac, int px, int py)
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
 
     /* 4-line data block: callsign / type / flight level / ground speed. */
-    char fl[16];
-    if (ac->on_ground) {
-        strcpy(fl, "GND");
-    } else if (ac->altitude_ft > 0) {
-        snprintf(fl, sizeof(fl), "FL%03d", ac->altitude_ft / 100);
-    } else {
-        strcpy(fl, "----");
-    }
+    if (s_opts.labels) {
+        char fl[16];
+        if (ac->on_ground) {
+            strcpy(fl, "GND");
+        } else if (ac->altitude_ft > 0) {
+            snprintf(fl, sizeof(fl), "FL%03d", ac->altitude_ft / 100);
+        } else {
+            strcpy(fl, "----");
+        }
 
-    lv_obj_t *label = lv_label_create(s_layer);
-    lv_obj_set_style_text_font(label, &lv_font_unscii_8, 0);
-    lv_obj_set_style_text_color(label, COLOR_SCOPE, 0);
-    lv_obj_set_style_text_line_space(label, 1, 0);
-    lv_label_set_text_fmt(label, "%s\n%s\n%s\n%d",
-                          ac->callsign,
-                          ac->type[0] ? ac->type : "----",
-                          fl,
-                          (int)(ac->ground_speed + 0.5f));
-    lv_obj_set_pos(label, px + 9, py - 5);
+        lv_obj_t *label = lv_label_create(s_layer);
+        lv_obj_set_style_text_font(label, &lv_font_unscii_8, 0);
+        lv_obj_set_style_text_color(label, COLOR_SCOPE, 0);
+        lv_obj_set_style_text_line_space(label, 1, 0);
+        lv_label_set_text_fmt(label, "%s\n%s\n%s\n%d",
+                              ac->callsign,
+                              ac->type[0] ? ac->type : "----",
+                              fl,
+                              (int)(ac->ground_speed + 0.5f));
+        lv_obj_set_pos(label, px + 9, py - 5);
+    }
 }
 
 void radar_ui_update(const aircraft_t *list, size_t count)
@@ -290,7 +314,9 @@ void radar_ui_update(const aircraft_t *list, size_t count)
         }
     }
 
-    lv_label_set_text_fmt(s_header, "%s  %dNM  AC:%d", s_zip, s_range_nm, shown);
+    if (s_header) {
+        lv_label_set_text_fmt(s_header, "%s  %dNM  AC:%d", s_zip, s_range_nm, shown);
+    }
 
     lvgl_port_unlock();
 }

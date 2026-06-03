@@ -65,6 +65,51 @@ menu "ESP Radar Configuration"
                 successful refresh.
     endmenu
 
+    menu "Display"
+        config ESP_RADAR_UI_CLOCK
+            bool "Show background analog clock"
+            default y
+            help
+                Draw the dim amber analog clock (hands + hour pips) behind the scope.
+
+        config ESP_RADAR_UI_RINGS
+            bool "Show range rings"
+            default y
+            help
+                Draw the concentric range rings.
+
+        config ESP_RADAR_UI_BATTERY
+            bool "Show battery indicator"
+            default y
+            help
+                Show the battery indicator when a battery is detected.
+
+        config ESP_RADAR_UI_HEADER
+            bool "Show header line"
+            default y
+            help
+                Show the top header (location label / range / aircraft count).
+
+        config ESP_RADAR_UI_STATUS
+            bool "Show status line"
+            default y
+            help
+                Show the bottom status line (WIFI... / LINK UP / API ERR / ...).
+
+        config ESP_RADAR_UI_LABELS
+            bool "Show aircraft data blocks"
+            default y
+            help
+                Draw the 4-line data block (callsign / type / FL / speed) next to
+                each aircraft.
+
+        config ESP_RADAR_UI_LEADERS
+            bool "Show aircraft leader lines"
+            default y
+            help
+                Draw the velocity leader line pointing along each aircraft's track.
+    endmenu
+
     menu "Clock"
         config ESP_RADAR_TZ
             string "POSIX timezone string"
