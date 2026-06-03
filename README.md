@@ -80,7 +80,12 @@ location and other settings, plug the board in over USB, and click
 
 The location field accepts an **address** (geocoded via OpenStreetMap
 Nominatim) or your **current location** (browser geolocation), with a toggle
-to enter raw lat/lon instead. Every Display toggle above is exposed too.
+to enter raw lat/lon instead; the header label (ZIP) is reverse-geocoded from
+the coordinates automatically. The timezone is a searchable **dropdown of IANA
+zones** (e.g. `America/New_York`) mapped to the POSIX `TZ` string the firmware
+needs, and every Display toggle above is exposed too. Entered values are
+remembered in your browser. After flashing, a **Monitor serial output** button
+streams the device console so you can watch it boot.
 
 How it works: settings live in a dedicated `config` flash partition (see
 `partitions.csv`). At boot, [`app_config_load()`](components/app_config/app_config.c)

@@ -5,6 +5,11 @@
 // esptool-js. No app install required (Chrome / Edge on desktop).
 
 import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.5.4/bundle.js";
+import { TIMEZONES } from "./timezones.js";
+
+// IANA name -> POSIX TZ string (what the firmware actually needs).
+const TZ_MAP = Object.fromEntries(TIMEZONES.map((z) => [z.n, z.p]));
+const DEFAULT_TZ_POSIX = "EST5EDT,M3.2.0,M11.1.0";
 
 // --- Flash layout -----------------------------------------------------------
 // Offsets must match partitions.csv / flasher_args.json in the firmware build.
@@ -70,7 +75,7 @@ const DEFAULTS = {
   lon: "-74.0060",
   range: "50",
   refresh: "15",
-  tz: "EST5EDT,M3.2.0,M11.1.0",
+  tz: "America/New_York",
   ntp: "pool.ntp.org",
   beep: true,
   ui_clock: true,
@@ -106,14 +111,44 @@ function applyForm(values) {
     const el = $(id);
     if (!el) continue;
     const val = id in values ? values[id] : DEFAULTS[id];
-    if (el.type === "checkbox") el.checked = !!val;
-    else el.value = val;
+    if (el.type === "checkbox") {
+      el.checked = !!val;
+    } else {
+      el.value = val;
+      // A stale/unknown <select> value (e.g. old saved data) selects nothing;
+      // fall back to the default, then the first option.
+      if (el.tagName === "SELECT" && el.selectedIndex === -1) {
+        el.value = DEFAULTS[id];
+        if (el.selectedIndex === -1 && el.options.length) el.selectedIndex = 0;
+      }
+    }
   }
   // Reflect the raw-lat/lon toggle and coordinate readout.
   const raw = $("raw-toggle").checked;
   $("raw-mode").hidden = !raw;
   $("addr-mode").hidden = raw;
   syncCoordsFromInputs();
+}
+
+// Fill the timezone <select> with IANA names grouped by region.
+function populateTimezones() {
+  const sel = $("tz");
+  const groups = {};
+  for (const z of TIMEZONES) {
+    const region = z.n.includes("/") ? z.n.split("/")[0] : "Other";
+    (groups[region] ||= []).push(z);
+  }
+  for (const region of Object.keys(groups)) {
+    const og = document.createElement("optgroup");
+    og.label = region;
+    for (const z of groups[region]) {
+      const o = document.createElement("option");
+      o.value = z.n;
+      o.textContent = z.n;
+      og.appendChild(o);
+    }
+    sel.appendChild(og);
+  }
 }
 
 // --- Build the config image -------------------------------------------------
@@ -129,7 +164,7 @@ function buildConfigBlob() {
     zip: $("zip").value,
     lat: $("lat").value.trim(),
     lon: $("lon").value.trim(),
-    tz: $("tz").value,
+    tz: TZ_MAP[$("tz").value] || DEFAULT_TZ_POSIX,
     ntp: $("ntp").value,
     range_nm: $("range").value.trim(),
     refresh_sec: $("refresh").value.trim(),
@@ -168,7 +203,39 @@ function toBinaryString(u8) {
 // address search and geolocation just populate them.
 function setCoordsText(t) { $("coords").textContent = t; }
 
-function applyCoords(lat, lon) {
+// Becomes true once the user manually edits the header label, so we stop
+// auto-overwriting it from the coordinates.
+let zipTouched = false;
+
+function labelFromAddress(a) {
+  return (a && (a.postcode || a.city || a.town || a.village || a.suburb || a.county)) || "";
+}
+
+function setZip(label) {
+  if (!label) return;
+  if (zipTouched && $("zip").value.trim()) return;
+  $("zip").value = label;
+  saveForm();
+}
+
+// Reverse-geocode the coordinates to a ZIP/place label.
+async function fillZipFromCoords(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (zipTouched && $("zip").value.trim()) return;
+  try {
+    const url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18"
+      + `&addressdetails=1&lat=${lat}&lon=${lon}`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return;
+    const r = await res.json();
+    setZip(labelFromAddress(r.address));
+  } catch { /* best-effort */ }
+}
+
+// Set the coordinate inputs and refresh the readout. Pass an address object
+// (from forward geocoding) to fill the label without a second request;
+// otherwise the label is reverse-geocoded from the coordinates.
+function applyCoords(lat, lon, address) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
     setCoordsText("Could not determine coordinates.");
     return;
@@ -177,6 +244,8 @@ function applyCoords(lat, lon) {
   $("lon").value = lon.toFixed(5);
   setCoordsText(`Coordinates: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
   saveForm();
+  if (address) setZip(labelFromAddress(address));
+  else fillZipFromCoords(lat, lon);
 }
 
 function syncCoordsFromInputs() {
@@ -198,12 +267,7 @@ async function geocode() {
     const data = await res.json();
     if (!data.length) { setCoordsText(`No match for “${q}”.`); return; }
     const r = data[0];
-    applyCoords(parseFloat(r.lat), parseFloat(r.lon));
-    // Auto-fill the header label from the result if the user left it blank.
-    if (!$("zip").value.trim() && r.address) {
-      const a = r.address;
-      $("zip").value = a.postcode || a.city || a.town || a.village || a.county || "";
-    }
+    applyCoords(parseFloat(r.lat), parseFloat(r.lon), r.address);
   } catch (e) {
     setCoordsText("Address lookup failed: " + (e.message || e));
   }
@@ -228,8 +292,11 @@ async function fetchBin(url) {
 // --- Flash flow -------------------------------------------------------------
 async function flash() {
   const btn = $("flash");
-  btn.disabled = true;
   progEl.style.width = "0";
+
+  // The monitor holds the port open; release it before flashing.
+  if (isMonitoring()) await stopMonitor();
+  btn.disabled = true;
 
   let transport;
   try {
@@ -274,6 +341,7 @@ async function flash() {
     log("Done. Resetting board...");
     await esploader.after();
     log("\n✓ Flashed successfully. The radar should boot now.");
+    log("Tip: click “Monitor serial output” to watch the device boot.");
   } catch (err) {
     log(`\n✗ Error: ${err.message || err}`);
   } finally {
@@ -335,20 +403,84 @@ async function choosePort() {
   }
 }
 
+// --- Serial monitor ---------------------------------------------------------
+// Reads the device console (USB-Serial-JTAG; baud is irrelevant for CDC) and
+// streams it into the log. Toggled by the Monitor button.
+let monPort = null, monReader = null, monClosed = null;
+
+function isMonitoring() { return monReader != null; }
+
+async function toggleMonitor() {
+  if (isMonitoring()) { await stopMonitor(); return; }
+
+  let port = selectedPort();
+  if (!port) {
+    try { port = await navigator.serial.requestPort(); await refreshPorts(port); }
+    catch { return; }
+  }
+  try {
+    await port.open({ baudRate: 115200 });
+  } catch (e) {
+    log("Monitor: cannot open port (" + (e.message || e) + ")");
+    return;
+  }
+  monPort = port;
+  const decoder = new TextDecoderStream();
+  monClosed = port.readable.pipeTo(decoder.writable).catch(() => {});
+  monReader = decoder.readable.getReader();
+  $("monitor").textContent = "Stop monitor";
+  $("flash").disabled = true;
+  log("\n— monitor started (115200) —");
+  try {
+    for (;;) {
+      const { value, done } = await monReader.read();
+      if (done) break;
+      if (value) { logEl.textContent += value; logEl.scrollTop = logEl.scrollHeight; }
+    }
+  } catch { /* reader cancelled or device unplugged */ }
+}
+
+async function stopMonitor() {
+  try { await monReader?.cancel(); } catch {}
+  try { await monClosed; } catch {}
+  monReader = null;
+  monClosed = null;
+  try { await monPort?.close(); } catch {}
+  monPort = null;
+  const btn = $("monitor");
+  if (btn) btn.textContent = "Monitor serial output";
+  $("flash").disabled = false;
+  log("\n— monitor stopped —");
+}
+
 // --- Init -------------------------------------------------------------------
 // Location controls work regardless of Web Serial support.
 $("geocode").addEventListener("click", geocode);
+// Enter searches; Shift+Enter inserts a newline (it's a textarea now).
 $("addr").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); geocode(); }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); geocode(); }
 });
 $("geoloc").addEventListener("click", useLocation);
 $("lat").addEventListener("input", syncCoordsFromInputs);
 $("lon").addEventListener("input", syncCoordsFromInputs);
+// On raw lat/lon entry, reverse-geocode the label once editing settles.
+function reverseFromInputs() {
+  const lat = parseFloat($("lat").value);
+  const lon = parseFloat($("lon").value);
+  fillZipFromCoords(lat, lon);
+}
+$("lat").addEventListener("change", reverseFromInputs);
+$("lon").addEventListener("change", reverseFromInputs);
+// Manual edits to the header label disable auto-fill.
+$("zip").addEventListener("input", () => { zipTouched = true; });
 $("raw-toggle").addEventListener("change", (e) => {
   const raw = e.target.checked;
   $("raw-mode").hidden = !raw;
   $("addr-mode").hidden = raw;
 });
+
+// Build the timezone list before restoring saved values.
+populateTimezones();
 
 // Persist every form field; restore saved values (or defaults) on load.
 applyForm(loadSaved());
@@ -359,6 +491,7 @@ for (const id of Object.keys(DEFAULTS)) {
 }
 $("reset").addEventListener("click", () => {
   try { localStorage.removeItem(STORE_KEY); } catch {}
+  zipTouched = false;
   applyForm({});
 });
 
@@ -367,10 +500,12 @@ if (!("serial" in navigator)) {
   $("flash").disabled = true;
   $("addport").disabled = true;
   $("port").disabled = true;
+  $("monitor").disabled = true;
 } else {
   $("flash").addEventListener("click", flash);
   $("addport").addEventListener("click", choosePort);
+  $("monitor").addEventListener("click", toggleMonitor);
   refreshPorts();
   navigator.serial.addEventListener("connect", () => refreshPorts(selectedPort()));
-  navigator.serial.addEventListener("disconnect", () => refreshPorts(selectedPort()));
+  navigator.serial.addEventListener("disconnect", () => { if (!isMonitoring()) refreshPorts(selectedPort()); });
 }

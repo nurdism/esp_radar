@@ -111,7 +111,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p site/firmware
-          cp web/index.html web/flasher.js          site/
+          cp web/*.html web/*.js                     site/
           cp artifacts/bootloader.bin               site/firmware/
           cp artifacts/partition-table.bin          site/firmware/
           cp artifacts/esp_radar.bin                site/firmware/

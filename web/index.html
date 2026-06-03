@@ -21,14 +21,15 @@
     }
     legend { padding: 0 .5rem; color: var(--amber); font-size: .85rem; text-transform: uppercase; letter-spacing: .1em; }
     label { display: block; margin: .6rem 0 .15rem; font-size: .8rem; color: #cfa64a; }
-    input[type=text], input[type=password], input[type=number], select {
+    input[type=text], input[type=password], input[type=number], select, textarea {
       width: 100%; padding: .5rem .6rem; background: #000; color: var(--amber);
       border: 1px solid #3a3a3a; border-radius: 4px; font-family: inherit; font-size: .95rem;
     }
-    input:focus, select:focus { outline: none; border-color: var(--amber); }
+    textarea { resize: vertical; min-height: 2.6rem; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--amber); }
     .row { display: flex; gap: .75rem; align-items: stretch; }
     .row > div { flex: 1; }
-    .row > input, .row > select { flex: 1; min-width: 0; }
+    .row > input, .row > select, .row > textarea { flex: 1; min-width: 0; }
     button.aux {
       width: auto; flex: 0 0 auto; margin-top: 0; padding: .5rem .9rem; font-size: .85rem;
       font-weight: 500; background: transparent; color: var(--amber); border: 1px solid var(--amber);
@@ -74,7 +75,7 @@
         <div id="addr-mode">
           <label for="addr">Address or place</label>
           <div class="row">
-            <input id="addr" type="text" placeholder="350 5th Ave, New York" autocomplete="off" />
+            <textarea id="addr" rows="2" placeholder="350 5th Ave, New York" autocomplete="off"></textarea>
             <button id="geocode" type="button" class="aux">Search</button>
           </div>
           <button id="geoloc" type="button" class="aux" style="margin-top:.5rem">Use my location</button>
@@ -116,8 +117,8 @@
             <input id="refresh" type="number" min="5" max="600" placeholder="15" />
           </div>
         </div>
-        <label for="tz">POSIX timezone</label>
-        <input id="tz" type="text" maxlength="47" placeholder="EST5EDT,M3.2.0,M11.1.0" />
+        <label for="tz">Timezone</label>
+        <select id="tz"></select>
         <label for="ntp">NTP server</label>
         <input id="ntp" type="text" maxlength="47" placeholder="pool.ntp.org" />
         <div class="check">
@@ -149,7 +150,10 @@
 
       <button id="flash" type="button">Connect &amp; Flash</button>
       <div class="bar"><div id="prog"></div></div>
-      <button id="reset" type="button" class="aux" style="margin-top:.75rem">Reset all to defaults</button>
+      <div class="row" style="margin-top:.75rem">
+        <button id="monitor" type="button" class="aux" style="flex:1">Monitor serial output</button>
+        <button id="reset" type="button" class="aux" style="flex:1">Reset all to defaults</button>
+      </div>
     </form>
 
     <pre id="log">Ready. Plug the board in via USB, then press &ldquo;Connect &amp; Flash&rdquo;.</pre>
